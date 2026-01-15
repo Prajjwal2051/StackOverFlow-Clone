@@ -1,4 +1,3 @@
-
 import { commentCollection, db } from "../name"
 import { databases } from "./config"
 import { Permission } from "appwrite"
