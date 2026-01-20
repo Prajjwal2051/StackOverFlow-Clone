@@ -10,6 +10,8 @@ import { AppwriteException, ID, Models } from "node-appwrite"
 // Importing our Appwrite account configuration
 import { account } from "@/models/client/config"
 import { ProxyMatcher } from "next/dist/build/analysis/get-page-static-info"
+import { deprecate } from "util"
+import { warnOptionHasBeenDeprecated } from "next/dist/server/config"
 
 // This interface defines what extra info we store about each user
 export interface UserPrefs {
@@ -40,18 +42,104 @@ interface IAuthStore {
     // Function to log in a user with their email and password
     // Returns success status and any error that occurred
     login(
-        email: String,
-        password: String
+        email: string,
+        password: string
     ): Promise<{ sucess: boolean; error?: AppwriteException | null }>
 
     // Function to create a new user account
     // Takes name, email, and password and returns success status
     createAccount(
-        name: String,
-        email: String,
-        password: String
+        name: string,
+        email: string,
+        password: string
     ): Promise<{ sucess: boolean; error?: AppwriteException | null }>
 
     // Function to log out the current user
     logout(): Promise<void>
 }
+
+export const useAuthStore = create<IAuthStore>()(
+    persist(
+
+        immer((set) => ({
+            session: null,
+            jwt: null,
+            user: null,
+            hydrated: false,
+
+            setHydrated() {
+                set({
+                    hydrated: true
+                })
+            },
+
+            async verifySession() {
+                try {
+                    const session = await account.getSession("current")
+                    set({ session })
+                } catch (error) {
+                    console.log(error)
+                }
+            },
+
+            async login(email: string, password: string) {
+                try {
+                    const session = await account.createEmailPasswordSession(email, password)
+                    const [user, { jwt }] = await Promise.all([
+                        account.get<UserPrefs>(),
+                        account.createJWT()
+                    ])
+                    if (!user.prefs?.reputation) await account.updatePrefs<UserPrefs>({ reputation: 0 })
+                    set({ session, user, jwt })
+                    return {
+                        sucess: true
+                    }
+                } catch (error) {
+                    console.log(error)
+                    return {
+                        sucess: false,
+                        error: error instanceof AppwriteException ? error : null
+                    }
+                }
+            },
+
+            async createAccount(name: string, email: string, password: string) {
+                try {
+                    await account.create(ID.unique(),email,password)
+                    return {
+                        sucess: true
+                    }
+                } catch (error) {
+                    console.log(error)
+                    return {
+                        sucess: false,
+                        error: error instanceof AppwriteException ? error : null
+                    }
+                }
+            },
+
+            async logout() {
+                try {
+                    await account.deleteSession("current")
+                    set({session:null,jwt:null, user:null})
+                    
+                } catch (error) {
+                    console.log(error)
+
+                }
+            },
+
+
+        })),
+        {
+            name: "auth",
+            onRehydrateStorage() {
+                return (state, error) => {
+                    if (!error) {
+                        state?.setHydrated()
+                    }
+                }
+            }
+        }
+    )
+)
