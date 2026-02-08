@@ -1,4 +1,5 @@
 import { useAuthStore } from "@/store/Auth";
+"use-client"
 import React from "react";
 
 function LoginPage() {
